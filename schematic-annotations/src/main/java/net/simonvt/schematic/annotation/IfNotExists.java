@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Simon Vig Therkildsen
+ * Copyright (C) 2015 Simon Vig Therkildsen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,21 +23,8 @@ import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.RetentionPolicy.CLASS;
 
 /**
- * This {@code Uri} is set as notifications {@code Uri} on the {@code Cursor} returned when querying
- * the defined paths.
- * <pre>{@code
- * &#064;ContentUri(
- *   path = "lists",
- *   type = "vnd.android.cursor.dir/list",
- *   defaultSort = ListColumns.TITLE + " ASC")
- * &#064;NotificationUri(
- *   paths = {
- *       "lists/withItems"
- *   })
- * public static final Uri LISTS = Uri.parse("content://" + AUTHORITY + "/lists");
- * }</pre>
+ * Add a IF NOT EXISTS clause to a table definition.
  */
 @Retention(CLASS) @Target(FIELD)
-public @interface NotificationUri {
-  String[] paths();
+public @interface IfNotExists {
 }

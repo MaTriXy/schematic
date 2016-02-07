@@ -32,8 +32,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ListView;
 import android.widget.TextView;
+
+import butterknife.Bind;
 import butterknife.ButterKnife;
-import butterknife.InjectView;
 import butterknife.OnClick;
 import butterknife.OnItemClick;
 import net.simonvt.schematic.sample.R;
@@ -48,7 +49,7 @@ public class ListFragment extends Fragment implements LoaderManager.LoaderCallba
 
     void onAddNote(long listId);
 
-    void onNoteSelected(long listId, long noteId, String note);
+    void onNoteSelected(long listId, long noteId, String note, String status);
 
     void onListRemoved();
   }
@@ -73,9 +74,9 @@ public class ListFragment extends Fragment implements LoaderManager.LoaderCallba
 
   private ListAdapter adapter;
 
-  @InjectView(android.R.id.list) ListView listView;
+  @Bind(android.R.id.list) ListView listView;
 
-  @InjectView(android.R.id.empty) TextView emptyView;
+  @Bind(android.R.id.empty) TextView emptyView;
 
   @Override public void onAttach(Activity activity) {
     super.onAttach(activity);
@@ -97,7 +98,7 @@ public class ListFragment extends Fragment implements LoaderManager.LoaderCallba
 
   @Override public void onViewCreated(View view, Bundle savedInstanceState) {
     super.onViewCreated(view, savedInstanceState);
-    ButterKnife.inject(this, view);
+    ButterKnife.bind(this, view);
     listView.setEmptyView(emptyView);
     if (adapter != null) {
       listView.setAdapter(adapter);
@@ -107,7 +108,7 @@ public class ListFragment extends Fragment implements LoaderManager.LoaderCallba
   }
 
   @Override public void onDestroyView() {
-    ButterKnife.reset(this);
+    ButterKnife.unbind(this);
     super.onDestroyView();
   }
 
@@ -140,7 +141,8 @@ public class ListFragment extends Fragment implements LoaderManager.LoaderCallba
   @OnItemClick(android.R.id.list) void onNoteSelected(int position, long noteId) {
     Cursor c = (Cursor) adapter.getItem(position);
     String note = c.getString(c.getColumnIndex(NoteColumns.NOTE));
-    listener.onNoteSelected(listId, noteId, note);
+    String status = c.getString(c.getColumnIndex(NoteColumns.STATUS));
+    listener.onNoteSelected(listId, noteId, note, status);
   }
 
   @Override public Loader<Cursor> onCreateLoader(int id, Bundle args) {

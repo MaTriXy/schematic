@@ -43,11 +43,50 @@ public final class NotesProvider {
   @TableEndpoint(table = NotesDatabase.LISTS) public static class Lists {
 
     @ContentUri(
-        path = Path.LISTS,
+        path = "lists",
         type = "vnd.android.cursor.dir/list",
         defaultSort = ListColumns.TITLE + " ASC")
-    public static final Uri LISTS = Uri.parse("content://" + AUTHORITY + "/lists")
+    public static final Uri LISTS = Uri.parse("content://" + AUTHORITY + "/lists");
   }
+```
+
+Table column annotations
+------------------------
+
+```java
+@AutoIncrement
+@DataType
+@DefaultValue
+@NotNull
+@PrimaryKey
+@References
+@Unique
+```
+
+Defining an Uri
+---------------
+
+The ```@ContentUri``` annotation is used when the ```Uri``` does not change.
+
+```java
+@ContentUri(
+  path = "lists",
+  type = "vnd.android.cursor.dir/list",
+  defaultSort = ListColumns.TITLE + " ASC")
+public static final Uri LISTS = Uri.parse("content://" + AUTHORITY + "/lists");
+```
+
+If the ```Uri``` is created based on some value, e.g. an id, ```@InexactContentUri``` is used.
+```java
+@InexactContentUri(
+  path = Path.LISTS + "/#",
+  name = "LIST_ID",
+  type = "vnd.android.cursor.item/list",
+  whereColumn = ListColumns._ID,
+  pathSegment = 1)
+public static Uri withId(long id) {
+  return Uri.parse("content://" + AUTHORITY + "/lists/" + id);
+}
 ```
 
 
@@ -57,9 +96,9 @@ Including in your project
 I recommend using the android-apt plugin. It doesn't include the compiler artifact in the final apk,
 and also sets the source paths so AS picks it up the generated classes.
 
-```
-apply plugin: 'android'
-apply plugin: 'android-apt'
+```groovy
+apply plugin: 'com.android.application'
+apply plugin: 'com.neenbedankt.android-apt'
 
 buildscript {
   repositories {
@@ -67,20 +106,14 @@ buildscript {
   }
 
   dependencies {
-    classpath 'com.android.tools.build:gradle:0.10.+'
-    classpath 'com.neenbedankt.gradle.plugins:android-apt:1.2'
+    classpath 'com.android.tools.build:gradle:{latest-version}'
+    classpath 'com.neenbedankt.gradle.plugins:android-apt:{latest-version}'
   }
 }
 
 dependencies {
   apt 'net.simonvt.schematic:schematic-compiler:{latest-version}'
   compile 'net.simonvt.schematic:schematic:{latest-version}'
-}
-
-apt {
-  arguments {
-    schematicOutPackage 'your.output.package'
-  }
 }
 ```
 

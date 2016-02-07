@@ -1,10 +1,18 @@
 language: android
 
-jdk: oraclejdk7
+jdk:
+ - oraclejdk7
+ - oraclejdk8
+
+env: CI=travis
 
 android:
   components:
-    - build-tools-19.1.0
+    - platform-tools
+    - tools
+    - build-tools-23.0.2
+    - android-23
+    - extra-android-m2repository
 
 before_install:
   - TERM=dumb
@@ -14,3 +22,5 @@ install:
 
 script:
   - ./gradlew checkDebug
+
+sudo: false

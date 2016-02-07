@@ -26,12 +26,16 @@ import net.simonvt.schematic.annotation.ContentProvider;
 import net.simonvt.schematic.annotation.ContentUri;
 import net.simonvt.schematic.annotation.InexactContentUri;
 import net.simonvt.schematic.annotation.MapColumns;
+import net.simonvt.schematic.annotation.NotifyBulkInsert;
 import net.simonvt.schematic.annotation.NotifyDelete;
 import net.simonvt.schematic.annotation.NotifyInsert;
 import net.simonvt.schematic.annotation.NotifyUpdate;
 import net.simonvt.schematic.annotation.TableEndpoint;
+import net.simonvt.schematic.sample.database.NotesDatabase.Tables;
 
-@ContentProvider(authority = NotesProvider.AUTHORITY, database = NotesDatabase.class)
+@ContentProvider(authority = NotesProvider.AUTHORITY,
+    database = NotesDatabase.class,
+    packageName = "net.simonvt.schematic.sample.provider")
 public final class NotesProvider {
 
   private NotesProvider() {
@@ -55,7 +59,7 @@ public final class NotesProvider {
     return builder.build();
   }
 
-  @TableEndpoint(table = NotesDatabase.LISTS) public static class Lists {
+  @TableEndpoint(table = Tables.LISTS) public static class Lists {
 
     @MapColumns public static Map<String, String> mapColumns() {
       Map<String, String> map = new HashMap<String, String>();
@@ -75,7 +79,7 @@ public final class NotesProvider {
         path = Path.LISTS + "/#",
         name = "LIST_ID",
         type = "vnd.android.cursor.item/list",
-        whereColumn = ListColumns._ID,
+        whereColumn = ListColumns.ID,
         pathSegment = 1)
     public static Uri withId(long id) {
       return buildUri(Path.LISTS, String.valueOf(id));
@@ -88,9 +92,9 @@ public final class NotesProvider {
         + "."
         + NoteColumns.LIST_ID
         + "="
-        + NotesDatabase.LISTS
+        + Tables.LISTS
         + "."
-        + ListColumns._ID
+        + ListColumns.ID
         + ")";
   }
 
@@ -105,7 +109,7 @@ public final class NotesProvider {
         name = "NOTE_ID",
         path = Path.NOTES + "/#",
         type = "vnd.android.cursor.item/note",
-        whereColumn = NoteColumns._ID,
+        whereColumn = NoteColumns.ID,
         pathSegment = 1)
     public static Uri withId(long id) {
       return buildUri(Path.NOTES, String.valueOf(id));
@@ -128,8 +132,15 @@ public final class NotesProvider {
       };
     }
 
+    @NotifyBulkInsert(paths = Path.NOTES)
+    public static Uri[] onBulkInsert(Context context, Uri uri, ContentValues[] values, long[] ids) {
+      return new Uri[] {
+          uri,
+      };
+    }
+
     @NotifyUpdate(paths = Path.NOTES + "/#") public static Uri[] onUpdate(Context context,
-        Uri uri) {
+        Uri uri, String where, String[] whereArgs) {
       final long noteId = Long.valueOf(uri.getPathSegments().get(1));
       Cursor c = context.getContentResolver().query(uri, new String[] {
           NoteColumns.LIST_ID,

@@ -23,21 +23,13 @@ import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.RetentionPolicy.CLASS;
 
 /**
- * This {@code Uri} is set as notifications {@code Uri} on the {@code Cursor} returned when querying
- * the defined paths.
- * <pre>{@code
- * &#064;ContentUri(
- *   path = "lists",
- *   type = "vnd.android.cursor.dir/list",
- *   defaultSort = ListColumns.TITLE + " ASC")
- * &#064;NotificationUri(
- *   paths = {
- *       "lists/withItems"
- *   })
- * public static final Uri LISTS = Uri.parse("content://" + AUTHORITY + "/lists");
- * }</pre>
+ * Adds the UNIQUE keyword to a database column.
  */
 @Retention(CLASS) @Target(FIELD)
-public @interface NotificationUri {
-  String[] paths();
+public @interface Unique {
+  /**
+   * Defines conflict resolution algorithm.
+   */
+  ConflictResolutionType onConflict() default ConflictResolutionType.NONE;
+
 }

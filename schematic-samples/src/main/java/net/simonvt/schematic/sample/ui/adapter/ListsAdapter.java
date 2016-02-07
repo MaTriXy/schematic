@@ -23,15 +23,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CursorAdapter;
 import android.widget.TextView;
+
+import butterknife.Bind;
 import butterknife.ButterKnife;
-import butterknife.InjectView;
 import net.simonvt.schematic.sample.R;
 import net.simonvt.schematic.sample.database.ListColumns;
 
 public class ListsAdapter extends CursorAdapter {
 
   public static final String[] PROJECTION = new String[] {
-      ListColumns._ID, ListColumns.TITLE, ListColumns.NOTES,
+      ListColumns.ID, ListColumns.TITLE, ListColumns.NOTES,
   };
 
   public ListsAdapter(Context context, Cursor c) {
@@ -54,11 +55,11 @@ public class ListsAdapter extends CursorAdapter {
 
   static class ViewHolder {
 
-    @InjectView(R.id.title) TextView title;
-    @InjectView(R.id.notes) TextView notes;
+    @Bind(R.id.title) TextView title;
+    @Bind(R.id.notes) TextView notes;
 
     public ViewHolder(View view) {
-      ButterKnife.inject(this, view);
+      ButterKnife.bind(this, view);
     }
   }
 }

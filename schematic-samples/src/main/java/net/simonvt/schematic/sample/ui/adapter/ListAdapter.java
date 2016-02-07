@@ -23,8 +23,9 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+
+import butterknife.Bind;
 import butterknife.ButterKnife;
-import butterknife.InjectView;
 import net.simonvt.schematic.sample.R;
 import net.simonvt.schematic.sample.database.NoteColumns;
 
@@ -44,13 +45,16 @@ public class ListAdapter extends CursorAdapter {
     ViewHolder vh = (ViewHolder) view.getTag();
     final String note = cursor.getString(cursor.getColumnIndex(NoteColumns.NOTE));
     vh.note.setText(note);
+    final String status = cursor.getString(cursor.getColumnIndex(NoteColumns.STATUS));
+    vh.status.setText(status);
   }
 
   static class ViewHolder {
-    @InjectView(R.id.note) TextView note;
+    @Bind(R.id.note) TextView note;
+    @Bind(R.id.statusText) TextView status;
 
     ViewHolder(View v) {
-      ButterKnife.inject(this, v);
+      ButterKnife.bind(this, v);
     }
   }
 }

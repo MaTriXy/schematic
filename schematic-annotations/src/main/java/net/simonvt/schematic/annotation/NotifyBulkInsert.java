@@ -19,25 +19,14 @@ package net.simonvt.schematic.annotation;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
-import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.RetentionPolicy.CLASS;
 
 /**
- * This {@code Uri} is set as notifications {@code Uri} on the {@code Cursor} returned when querying
- * the defined paths.
- * <pre>{@code
- * &#064;ContentUri(
- *   path = "lists",
- *   type = "vnd.android.cursor.dir/list",
- *   defaultSort = ListColumns.TITLE + " ASC")
- * &#064;NotificationUri(
- *   paths = {
- *       "lists/withItems"
- *   })
- * public static final Uri LISTS = Uri.parse("content://" + AUTHORITY + "/lists");
- * }</pre>
+ * Annotate a method that returns an array of Uris to be notified when performing a bulk insert
+ * operation.
  */
-@Retention(CLASS) @Target(FIELD)
-public @interface NotificationUri {
-  String[] paths();
+@Retention(CLASS) @Target(METHOD)
+public @interface NotifyBulkInsert {
+  String[] paths() default { };
 }

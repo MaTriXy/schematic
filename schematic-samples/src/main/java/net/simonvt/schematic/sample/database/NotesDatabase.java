@@ -19,11 +19,15 @@ package net.simonvt.schematic.sample.database;
 import android.content.Context;
 import android.database.sqlite.SQLiteDatabase;
 import net.simonvt.schematic.annotation.Database;
+import net.simonvt.schematic.annotation.ExecOnCreate;
+import net.simonvt.schematic.annotation.IfNotExists;
+import net.simonvt.schematic.annotation.OnConfigure;
 import net.simonvt.schematic.annotation.OnCreate;
 import net.simonvt.schematic.annotation.OnUpgrade;
 import net.simonvt.schematic.annotation.Table;
 
-@Database(version = NotesDatabase.VERSION)
+@Database(version = NotesDatabase.VERSION,
+    packageName = "net.simonvt.schematic.sample.provider")
 public final class NotesDatabase {
 
   private NotesDatabase() {
@@ -31,7 +35,10 @@ public final class NotesDatabase {
 
   public static final int VERSION = 1;
 
-  @Table(ListColumns.class) public static final String LISTS = "lists";
+  public static class Tables {
+
+    @Table(ListColumns.class) @IfNotExists public static final String LISTS = "lists";
+  }
 
   @Table(NoteColumns.class) public static final String NOTES = "notes";
 
@@ -41,4 +48,9 @@ public final class NotesDatabase {
   @OnUpgrade public static void onUpgrade(Context context, SQLiteDatabase db, int oldVersion,
       int newVersion) {
   }
+
+  @OnConfigure public static void onConfigure(SQLiteDatabase db) {
+  }
+
+  @ExecOnCreate public static final String EXEC_ON_CREATE = "SELECT * FROM " + NOTES;
 }
