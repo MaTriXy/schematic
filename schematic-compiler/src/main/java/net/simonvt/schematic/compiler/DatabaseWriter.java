@@ -59,9 +59,9 @@ public class DatabaseWriter {
 
   String fileName;
 
-  List<VariableElement> tables = new ArrayList<VariableElement>();
+  List<VariableElement> tables = new ArrayList<>();
 
-  List<VariableElement> execOnCreate = new ArrayList<VariableElement>();
+  List<VariableElement> execOnCreate = new ArrayList<>();
 
   ExecutableElement onCreate;
 
@@ -175,8 +175,8 @@ public class DatabaseWriter {
 
       ClassName tableClassName = ClassName.get(tableClass);
 
-      TableWriter tableWriter = new TableWriter(processingEnv, table);
-      tableWriter.createTable(databaseBuilder, tableClassName);
+      TableWriter tableWriter = new TableWriter(processingEnv, table, tableClassName);
+      tableWriter.createTable(databaseBuilder);
       tableWriter.createValuesBuilder(filer, outPackage);
     }
 

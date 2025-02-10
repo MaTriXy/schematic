@@ -49,6 +49,7 @@ import net.simonvt.schematic.annotation.ContentUri;
 import net.simonvt.schematic.annotation.Database;
 import net.simonvt.schematic.annotation.InexactContentUri;
 import net.simonvt.schematic.annotation.InsertUri;
+import net.simonvt.schematic.annotation.Join;
 import net.simonvt.schematic.annotation.MapColumns;
 import net.simonvt.schematic.annotation.NotificationUri;
 import net.simonvt.schematic.annotation.NotifyBulkInsert;
@@ -122,24 +123,25 @@ public class ContentProviderWriter {
   String providerName;
 
   Element database;
-  String databaseName;
+  ClassName databaseClass;
 
   ExecutableElement defaultNotifyInsert;
   ExecutableElement defaultNotifyBulkInsert;
   ExecutableElement defaultNotifyUpdate;
   ExecutableElement defaultNotifyDelete;
 
-  List<UriContract> uris = new ArrayList<UriContract>();
-  List<String> paths = new ArrayList<String>();
-  Map<String, Element> notificationUris = new HashMap<String, Element>();
-  Map<String, ExecutableElement> notifyInsert = new HashMap<String, ExecutableElement>();
-  Map<String, ExecutableElement> notifyBulkInsert = new HashMap<String, ExecutableElement>();
-  Map<String, ExecutableElement> notifyUpdate = new HashMap<String, ExecutableElement>();
-  Map<String, ExecutableElement> notifyDelete = new HashMap<String, ExecutableElement>();
-  Map<String, ExecutableElement> whereCalls = new HashMap<String, ExecutableElement>();
-  Map<String, ExecutableElement> insertUris = new HashMap<String, ExecutableElement>();
+  List<UriContract> uris = new ArrayList<>();
+  List<String> paths = new ArrayList<>();
+  Map<String, Element> notificationUris = new HashMap<>();
+  Map<String, ExecutableElement> notifyInsert = new HashMap<>();
+  Map<String, ExecutableElement> notifyBulkInsert = new HashMap<>();
+  Map<String, ExecutableElement> notifyUpdate = new HashMap<>();
+  Map<String, ExecutableElement> notifyDelete = new HashMap<>();
+  Map<String, ExecutableElement> joinCalls = new HashMap<>();
+  Map<String, ExecutableElement> whereCalls = new HashMap<>();
+  Map<String, ExecutableElement> insertUris = new HashMap<>();
 
-  Map<Element, ExecutableElement> columnMaps = new HashMap<Element, ExecutableElement>();
+  Map<Element, ExecutableElement> columnMaps = new HashMap<>();
 
   public ContentProviderWriter(ProcessingEnvironment processingEnv, Elements elements,
       Element provider) {
@@ -170,11 +172,29 @@ public class ContentProviderWriter {
       TypeMirror mirror = e.getTypeMirror();
       this.database = processingEnv.getTypeUtils().asElement(mirror);
       String databaseSchematicName = this.database.getSimpleName().toString();
+      String databaseSchematicPackage = this.database.getEnclosingElement().getSimpleName().toString();
       Database database = this.database.getAnnotation(Database.class);
-      databaseName = database.className();
-      if (databaseName.trim().isEmpty()) {
-        this.databaseName = databaseSchematicName;
+      if (database == null) {
+        error("Database class "
+            + this.database.toString()
+            + ", referenced from ContentProvider "
+            + provider.toString()
+            + ", is missing @Database annotation");
       }
+      String databaseName = database.className();
+      String databasePackage = database.packageName();
+
+      String resultingPackage = databaseSchematicPackage;
+      String resultingName = databaseSchematicName;
+
+      if (!databasePackage.trim().isEmpty()) {
+        resultingPackage = databasePackage;
+      }
+      if (!databaseName.trim().isEmpty()) {
+        resultingName = databaseName;
+      }
+
+      databaseClass = ClassName.get(resultingPackage, resultingName);
     }
 
     List<? extends Element> enclosedElements = provider.getEnclosedElements();
@@ -223,9 +243,9 @@ public class ContentProviderWriter {
             contract.path = path;
 
             String parent = ((TypeElement) enclosedElement).getQualifiedName().toString();
-            contract.name = enclosedElement.getSimpleName().toString().toUpperCase() + "_" + element
-                .getSimpleName()
-                .toString();
+            contract.name = enclosedElement.getSimpleName().toString().toUpperCase()
+                + "_"
+                + element.getSimpleName().toString();
             contract.classQualifiedName = parent;
 
             String contentTable = contentUri.table();
@@ -378,6 +398,11 @@ public class ContentProviderWriter {
             }
           }
 
+          Join join = element.getAnnotation(Join.class);
+          if (join != null) {
+            this.joinCalls.put(join.path(), (ExecutableElement) element);
+          }
+
           Where where = element.getAnnotation(Where.class);
           if (where != null) {
             this.whereCalls.put(where.path(), (ExecutableElement) element);
@@ -512,7 +537,7 @@ public class ContentProviderWriter {
         .returns(boolean.class)
         .addModifiers(Modifier.PUBLIC)
         .addAnnotation(Override.class)
-        .addStatement("database = $L.getInstance(getContext())", databaseName)
+        .addStatement("database = $T.getInstance(getContext())", databaseClass)
         .addStatement("return true")
         .build();
   }
@@ -709,11 +734,12 @@ public class ContentProviderWriter {
             }
 
             TypeMirror paramType = param.asType();
-            if (Clazz.URI.equals(ClassName.get(paramType))) {
+            if (Clazz.CONTEXT.equals(ClassName.get(paramType))) {
+              params.append("getContext()");
+            } else if (Clazz.URI.equals(ClassName.get(paramType))) {
               params.append("uri");
             } else {
-              throw new IllegalArgumentException(
-                  "@Where does not support parameter " + paramType.toString());
+              error(String.format("@Where does not support parameter %s", paramType.toString()));
             }
           }
 
@@ -724,9 +750,51 @@ public class ContentProviderWriter {
               .endControlFlow();
         }
 
-        StringBuilder tableBuilder = new StringBuilder(uri.table);
         if (uri.join != null) {
-          tableBuilder.append(" ").append(uri.join);
+          spec.addStatement("$T join = \" \" + $S", String.class, uri.join);
+        }
+
+        ExecutableElement joins = joinCalls.get(uri.path);
+        if (joins != null) {
+          String parent = ((TypeElement) joins.getEnclosingElement()).getQualifiedName().toString();
+          String methodName = joins.getSimpleName().toString();
+
+          List<? extends VariableElement> parameters = joins.getParameters();
+          StringBuilder params = new StringBuilder();
+          boolean first = true;
+          for (VariableElement param : parameters) {
+            if (first) {
+              first = false;
+            } else {
+              params.append(", ");
+            }
+
+            TypeMirror paramType = param.asType();
+            if (Clazz.CONTEXT.equals(ClassName.get(paramType))) {
+              params.append("getContext()");
+            } else if (Clazz.URI.equals(ClassName.get(paramType))) {
+              params.append("uri");
+            } else {
+              error(String.format("@Join does not support parameter %s", paramType.toString()));
+            }
+          }
+
+          if (uri.join == null) {
+            spec.addStatement("$T join = \"\"", String.class);
+          }
+
+          spec.addStatement("$T joins = $L.$L($L)", ArrayTypeName.of(String.class), parent,
+              methodName, params.toString())
+              .beginControlFlow("for ($T j : joins)", String.class)
+              .addStatement("join += \" \"")
+              .addStatement("join += j")
+              .endControlFlow();
+        }
+
+        if (uri.join != null || joins != null) {
+          spec.addStatement("$T table = $S + join", String.class, uri.table);
+        } else {
+          spec.addStatement("$T table = $S", String.class, uri.table);
         }
 
         spec.addStatement("final String groupBy = $S", uri.groupBy)
@@ -735,8 +803,8 @@ public class ContentProviderWriter {
 
         // TODO: The whereBuilder part is kind of gross
         spec.addStatement(
-            "$T cursor = builder.table($S)\n$L.query(db, projection, groupBy, having, sortOrder, limit)",
-            Clazz.CURSOR, tableBuilder.toString(), whereBuilder.toString());
+            "$T cursor = builder.table(table)\n$L.query(db, projection, groupBy, having, sortOrder, limit)",
+            Clazz.CURSOR, whereBuilder.toString());
 
         Element notifyUri = notificationUris.get(uri.path);
         if (notifyUri != null) {
@@ -803,13 +871,15 @@ public class ContentProviderWriter {
             }
 
             TypeMirror paramType = param.asType();
-            if (Clazz.URI.equals(ClassName.get(paramType))) {
+            if (Clazz.CONTEXT.equals(ClassName.get(paramType))) {
+              params.append("getContext()");
+            } else if (Clazz.URI.equals(ClassName.get(paramType))) {
               params.append("uri");
             } else if (Clazz.CONTENT_VALUES.equals(ClassName.get(paramType))) {
               params.append("values");
             } else {
-              throw new IllegalArgumentException(
-                  "@NotifyInsert does not support parameter " + paramType.toString());
+              error(String.format("@NotifyInsert does not support parameter %s",
+                  paramType.toString()));
             }
           }
 
@@ -878,11 +948,12 @@ public class ContentProviderWriter {
             }
 
             TypeMirror paramType = param.asType();
-            if (Clazz.URI.equals(ClassName.get(paramType))) {
+            if (Clazz.CONTEXT.equals(ClassName.get(paramType))) {
+              params.append("getContext()");
+            } else if (Clazz.URI.equals(ClassName.get(paramType))) {
               params.append("uri");
             } else {
-              throw new IllegalArgumentException(
-                  "@Where does not support parameter " + paramType.toString());
+              error(String.format("@Where does not support parameter %s", paramType.toString()));
             }
           }
 
@@ -929,8 +1000,8 @@ public class ContentProviderWriter {
             } else if ("java.lang.String[]".equals(variableElement.asType().toString())) {
               params.append("builder.getSelectionArgs()");
             } else {
-              throw new IllegalArgumentException(
-                  "@NotifyUpdate does not support parameter " + paramType.toString());
+              error(String.format("@NotifyUpdate does not support parameter %s",
+                  paramType.toString()));
             }
           }
 
@@ -1007,11 +1078,12 @@ public class ContentProviderWriter {
             }
 
             TypeMirror paramType = param.asType();
-            if (Clazz.URI.equals(ClassName.get(paramType))) {
+            if (Clazz.CONTEXT.equals(ClassName.get(paramType))) {
+              params.append("getContext()");
+            } else if (Clazz.URI.equals(ClassName.get(paramType))) {
               params.append("uri");
             } else {
-              throw new IllegalArgumentException(
-                  "@Where does not support parameter " + paramType.toString());
+              error(String.format("@Where does not support parameter %s", paramType.toString()));
             }
           }
 
@@ -1056,8 +1128,8 @@ public class ContentProviderWriter {
             } else if (ArrayTypeName.get(String.class).equals(ArrayTypeName.get(paramType))) {
               params.append("builder.getSelectionArgs()");
             } else {
-              throw new IllegalArgumentException(
-                  "@NotifyDelete does not support parameter " + paramType.toString());
+              error(String.format("@NotifyDelete does not support parameter %s",
+                  paramType.toString()));
             }
           }
 
@@ -1121,8 +1193,8 @@ public class ContentProviderWriter {
       } else if (ArrayTypeName.get(String.class).equals(ArrayTypeName.get(paramType))) {
         params.append("whereArgs");
       } else {
-        throw new IllegalArgumentException(
-            "@NotifyInsert does not support parameter " + paramType.toString());
+        error(String.format("@NotifyInsert does not support parameter %s",
+            paramType.toString()));
       }
     }
 
@@ -1165,8 +1237,8 @@ public class ContentProviderWriter {
       } else if (ArrayTypeName.of(ArrayTypeName.LONG).equals(ArrayTypeName.get(paramType))) {
         params.append("ids");
       } else {
-        throw new IllegalArgumentException(
-            "@NotifyBulkInsert does not support parameter " + paramType.toString());
+        error(String.format("@NotifyBulkInsert does not support parameter %s",
+            paramType.toString()));
       }
     }
 

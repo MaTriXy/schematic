@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.io.Writer;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import javax.annotation.processing.Filer;
 import javax.annotation.processing.ProcessingEnvironment;
@@ -40,14 +41,18 @@ import javax.tools.JavaFileObject;
 import net.simonvt.schematic.annotation.AutoIncrement;
 import net.simonvt.schematic.annotation.Check;
 import net.simonvt.schematic.annotation.ConflictResolutionType;
+import net.simonvt.schematic.annotation.Constraints;
 import net.simonvt.schematic.annotation.DataType;
 import net.simonvt.schematic.annotation.DefaultValue;
+import net.simonvt.schematic.annotation.ForeignKeyConstraint;
 import net.simonvt.schematic.annotation.IfNotExists;
 import net.simonvt.schematic.annotation.NotNull;
 import net.simonvt.schematic.annotation.PrimaryKey;
+import net.simonvt.schematic.annotation.PrimaryKeyConstraint;
 import net.simonvt.schematic.annotation.References;
 import net.simonvt.schematic.annotation.Table;
 import net.simonvt.schematic.annotation.Unique;
+import net.simonvt.schematic.annotation.UniqueConstraint;
 
 public class TableWriter {
 
@@ -56,20 +61,26 @@ public class TableWriter {
   String name;
   boolean ifNotExists;
 
-  Check checkConstraint;
+  private List<UniqueConstraint> uniqueConstraints = new ArrayList<>();
+  private List<Check> checkConstraints = new ArrayList<>();
+  private List<ForeignKeyConstraint> foreignKeyConstraints = new ArrayList<>();
+  private PrimaryKeyConstraint tableLevelPrimaryKey;
+
+  private PrimaryKey primaryKey;
 
   VariableElement table;
+  ClassName tableClassName;
 
   TypeElement columnsClass;
 
   List<VariableElement> columns = new ArrayList<>();
 
-  List<String> primaryKeys = new ArrayList<>();
-
-  public TableWriter(ProcessingEnvironment env, VariableElement table) {
+  public TableWriter(ProcessingEnvironment env, VariableElement table, ClassName tableClassName) {
     this.processingEnv = env;
     this.table = table;
     this.name = table.getConstantValue().toString();
+    this.tableClassName = tableClassName;
+
     Table columns = table.getAnnotation(Table.class);
     try {
       columns.value();
@@ -81,9 +92,9 @@ public class TableWriter {
     IfNotExists ifNotExists = table.getAnnotation(IfNotExists.class);
     this.ifNotExists = ifNotExists != null;
 
-    List<? extends TypeMirror> interfaces = columnsClass.getInterfaces();
+    fillEntireTableConstrains(columnsClass);
 
-    checkConstraint = columnsClass.getAnnotation(Check.class);
+    List<? extends TypeMirror> interfaces = columnsClass.getInterfaces();
 
     findColumns(columnsClass.getEnclosedElements());
 
@@ -91,6 +102,40 @@ public class TableWriter {
       TypeElement parent = (TypeElement) env.getTypeUtils().asElement(mirror);
       findColumns(parent.getEnclosedElements());
     }
+  }
+
+  private void fillEntireTableConstrains(TypeElement columnsClass) {
+    Constraints entireTableConstraints = columnsClass.getAnnotation(Constraints.class);
+    if (entireTableConstraints != null) {
+      for (UniqueConstraint uniqueConstraint : entireTableConstraints.unique()) {
+        uniqueConstraints.add(uniqueConstraint);
+      }
+
+      for (Check checkConstraint : entireTableConstraints.check()) {
+        checkConstraints.add(checkConstraint);
+      }
+
+      for (ForeignKeyConstraint foreignKey : entireTableConstraints.foreignKey()) {
+        foreignKeyConstraints.add(foreignKey);
+      }
+    }
+
+    UniqueConstraint uniqueConstraint = columnsClass.getAnnotation(UniqueConstraint.class);
+    if (uniqueConstraint != null) {
+      uniqueConstraints.add(uniqueConstraint);
+    }
+
+    Check checkConstraint = columnsClass.getAnnotation(Check.class);
+    if (checkConstraint != null) {
+      checkConstraints.add(checkConstraint);
+    }
+
+    ForeignKeyConstraint foreignKey = columnsClass.getAnnotation(ForeignKeyConstraint.class);
+    if (foreignKey != null) {
+      foreignKeyConstraints.add(foreignKey);
+    }
+
+    tableLevelPrimaryKey = columnsClass.getAnnotation(PrimaryKeyConstraint.class);
   }
 
   private void findColumns(List<? extends Element> elements) {
@@ -110,14 +155,26 @@ public class TableWriter {
 
       PrimaryKey primaryKey = variableElement.getAnnotation(PrimaryKey.class);
       if (primaryKey != null) {
-        primaryKeys.add(columnName);
+        if (this.primaryKey != null) {
+          error(String.format("Only one primary key can be defined for table. " +
+              "Use PrimaryKey or PrimaryKeyConstraint. Not both. " +
+              "Found in %s", tableClassName));
+        }
+        if (tableLevelPrimaryKey != null) {
+          error(String.format(
+              "Only one primary key can be defined for table. " +
+                  "Use PrimaryKey or PrimaryKeyConstraint. Not both. " +
+                  "Found in %s", tableClassName));
+        }
+
+        this.primaryKey = primaryKey;
       }
 
       this.columns.add(variableElement);
     }
   }
 
-  public void createTable(TypeSpec.Builder databaseBuilder, ClassName tableClassName)
+  public void createTable(TypeSpec.Builder databaseBuilder)
       throws IOException {
     List<ClassName> classes = new ArrayList<>();
 
@@ -126,8 +183,6 @@ public class TableWriter {
       query.append("IF NOT EXISTS ");
     }
     query.append(name).append(" (");
-
-    final int primaryKeyCount = primaryKeys.size();
 
     boolean first = true;
     for (VariableElement element : columns) {
@@ -161,7 +216,7 @@ public class TableWriter {
       }
 
       PrimaryKey primary = element.getAnnotation(PrimaryKey.class);
-      if (primary != null && primaryKeyCount == 1) {
+      if (primary != null) {
         query.append(" ").append("PRIMARY KEY");
         writeOnConflict(query, primary.onConflict());
       }
@@ -179,9 +234,10 @@ public class TableWriter {
 
       AutoIncrement autoIncrement = element.getAnnotation(AutoIncrement.class);
       if (autoIncrement != null) {
-        if (primaryKeyCount > 1) {
-          throw new IllegalArgumentException(
-              "AutoIncrement is not allowed when multiple primary keys are defined");
+        if (tableLevelPrimaryKey != null) {
+          error(String.format(
+              "AutoIncrement is not allowed when multiple primary keys are defined. "
+                  + "Found in %s", tableClassName));
         }
 
         query.append(" ").append("AUTOINCREMENT");
@@ -198,23 +254,28 @@ public class TableWriter {
       }
     }
 
-    if (primaryKeyCount > 1) {
-      query.append(",\"\n + \"PRIMARY KEY (");
-      first = true;
-      for (String columnName : primaryKeys) {
-        if (!first) {
-          query.append(",");
-        } else {
-          first = false;
-        }
-        query.append(columnName);
-      }
-      query.append(")");
+    if (tableLevelPrimaryKey != null) {
+      writePrimaryKey(query,
+              Arrays.asList(tableLevelPrimaryKey.columns()),
+              tableLevelPrimaryKey.name(),
+              tableLevelPrimaryKey.onConflict());
     }
 
-    if (checkConstraint != null) {
-      query.append(",\"\n + \"");
+    for (Check checkConstraint : checkConstraints) {
+      query.append( ",\"\n + \"");
       writeCheckConstraint(query, checkConstraint);
+    }
+
+    if (!uniqueConstraints.isEmpty()) {
+      for (UniqueConstraint uniqueConstraint : uniqueConstraints) {
+        writeUniqueConstraint(query, uniqueConstraint);
+      }
+    }
+
+    if (!foreignKeyConstraints.isEmpty()) {
+      for (ForeignKeyConstraint foreignKey : foreignKeyConstraints) {
+        writeForeignKeyConstraint(query, foreignKey);
+      }
     }
 
     query.append(")\"");
@@ -227,8 +288,72 @@ public class TableWriter {
     databaseBuilder.addField(tableSpec);
   }
 
-  private void writeCheckConstraint(StringBuilder query, Check check) {
-    query.append(" ").append("CHECK ( ").append(check.value()).append(" )");
+  private static void writeForeignKeyConstraint(StringBuilder query, ForeignKeyConstraint foreignKey) {
+    query.append(",\"\n + \"");
+    if (foreignKey.name().length() > 0) {
+      query.append(' ').append("CONSTRAINT ").append(foreignKey.name());
+    }
+    query.append(' ').append("FOREIGN KEY").append(" (");
+    for (int i = 0; i < foreignKey.columns().length; i++) {
+      if (i != 0) {
+        query.append(", ");
+      }
+      query.append(foreignKey.columns()[i]);
+    }
+    query.append(") ").append("REFERENCES").append(' ')
+            .append(foreignKey.referencedTable())
+            .append(" (");
+    for (int i = 0; i < foreignKey.referencedColumns().length; i++) {
+      if (i != 0) {
+        query.append(", ");
+      }
+      query.append(foreignKey.referencedColumns()[i]);
+    }
+    query.append(')');
+
+  }
+
+  private static void writePrimaryOrUniqueConstraint(
+          StringBuilder query,
+          String constraintType,
+          List<String> columnNames,
+          String name,
+          ConflictResolutionType resolutionType) {
+    query.append(",\"\n + \"");
+    if (name.length() > 0) {
+      query.append(' ').append("CONSTRAINT ").append(name);
+    }
+    query.append(' ').append(constraintType).append(" ( ");
+    int size = columnNames.size();
+    for (int i = 0; i < size; i++) {
+      if (i != 0)  query.append(", ");
+      query.append(columnNames.get(i));
+    }
+    query.append(" )");
+    writeOnConflict(query,resolutionType);
+  }
+
+  private static void writeUniqueConstraint(StringBuilder query, UniqueConstraint uniqueConstraint) {
+    writePrimaryOrUniqueConstraint(query,"UNIQUE", Arrays.asList(uniqueConstraint.columns()),
+            uniqueConstraint.name(), uniqueConstraint.onConflict());
+  }
+
+  private static void writePrimaryKey(
+          StringBuilder query,
+          List<String> columnNames,
+          String constraintName,
+          ConflictResolutionType resolutionType) {
+    writePrimaryOrUniqueConstraint(query,
+            "PRIMARY KEY", columnNames, constraintName, resolutionType);
+  }
+
+  private static void writeCheckConstraint(StringBuilder query, Check check) {
+    String name = check.name();
+    if (name.length() > 0) {
+      query.append(' ').append("CONSTRAINT ").append(name);
+    }
+
+    query.append(' ').append("CHECK ( ").append(check.value()).append(" )");
   }
 
   private static void writeOnConflict(StringBuilder query,
